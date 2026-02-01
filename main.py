@@ -109,7 +109,14 @@ def send_telegram_message(message):
         "text": message,
         "parse_mode": "Markdown"
     }
-    requests.post(url, json=payload)
+    response = requests.post(url, json=payload)
+    
+    # HATA AYIKLAMA KISMI
+    if response.status_code == 200:
+        print("✅ Telegram Başarılı: Mesaj iletildi.")
+    else:
+        print(f"❌ Telegram Hatası! Kod: {response.status_code}")
+        print(f"Detay: {response.text}")
 
 if __name__ == "__main__":
     print("Notion taranıyor...")
