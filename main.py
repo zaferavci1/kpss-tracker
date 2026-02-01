@@ -1,74 +1,119 @@
-import requests
-import datetime
 import os
-import sys
+import requests
+from datetime import datetime
 
-# --- GÜVENLİK İÇİN ENVIRONMENT VARIABLE KULLANIMI ---
-NOTION_TOKEN = os.getenv("NOTION_TOKEN")
-DATABASE_ID = os.getenv("DATABASE_ID") 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+# --- CONFIGURATION (Environment Variables) ---
+NOTION_TOKEN = os.environ.get("NOTION_TOKEN")
+DATABASE_ID = os.environ.get("DATABASE_ID")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
-headers = {
-    "Authorization": "Bearer " + NOTION_TOKEN,
-    "Content-Type": "application/json",
-    "Notion-Version": "2022-06-28"
+# --- EMOJI MAPPING ---
+# Ders isimlerine göre emoji atar. Notion'daki "Ders" property'si ile eşleşmeli.
+EMOJIS = {
+    "Matematik": "🧮",
+    "Tarih": "📜",
+    "Coğrafya": "🌍",
+    "Vatandaşlık": "⚖️",
+    "Türkçe": "📘",
+    "Genel Tekrar": "🔄",
+    "Deneme": "📝"
 }
 
-def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message}
-    requests.post(url, json=payload)
-
-def check_daily_progress():
-    # Notion'daki tarih formatına (YYYY-MM-DD) uygun bugünün tarihini al
-    today_str = datetime.date.today().isoformat()
+def get_tasks_for_today():
+    url = f"https://api.notion.com/v1/databases/{DATABASE_ID}/query"
     
-    # 1. Veritabanında BUGÜNÜN tarihini sorgula
-    query_payload = {
+    headers = {
+        "Authorization": f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json"
+    }
+    
+    # Notion filtreleme: Tarih = Bugün
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    
+    payload = {
         "filter": {
-            "property": "Tarih", 
+            "property": "Tarih", # Notion'daki tarih sütununun adı
             "date": {
                 "equals": today_str
             }
-        }
+        },
+        "sorts": [
+            {
+                "property": "Ders",
+                "direction": "ascending"
+            }
+        ]
     }
     
-    try:
-        response = requests.post(f"https://api.notion.com/v1/databases/{DATABASE_ID}/query", headers=headers, json=query_payload)
-        data = response.json()
+    response = requests.post(url, json=payload, headers=headers)
+    
+    if response.status_code != 200:
+        print(f"Hata: Notion API yanıt vermedi. Kod: {response.status_code}")
+        print(response.text)
+        return []
         
-        # Eğer API hatası dönerse loglayalım
-        if response.status_code != 200:
-            print("Notion API Hatası:", response.text)
-            return
+    return response.json().get("results", [])
 
-        if not data["results"]:
-            print(f"{today_str} tarihi için plan bulunamadı. Tatil günü olabilir mi?")
-            return
+def format_telegram_message(tasks):
+    if not tasks:
+        return "🎉 Bugün planlı bir çalışman yok! Dinlenme günü."
+    
+    today_date = datetime.now().strftime("%d.%m.%Y")
+    message = f"📅 *KPSS Günlük Plan - {today_date}*\n\n"
+    
+    total_minutes = 0
+    
+    for task in tasks:
+        props = task["properties"]
+        
+        # Notion verilerini güvenli şekilde çekme (Safe parsing)
+        try:
+            # Ders (Select Property)
+            ders = props["Ders"]["select"]["name"]
+            emoji = EMOJIS.get(ders, "📌")
+            
+            # Konu (Title Property - Veritabanının ana sütunu genelde title olur)
+            # Eğer "Konu" sütunu Title değil de Text ise ["rich_text"] kullanılır.
+            # Notion'da ana sütun hangisiyse (Name/Konu) onu title olarak al.
+            konu_list = props["Konu"].get("title", [])
+            if not konu_list: # Eğer boşsa
+                 konu = "Konu belirtilmemiş"
+            else:
+                 konu = konu_list[0]["text"]["content"]
+            
+            # Süre (Number Property)
+            sure = props["Süre"]["number"]
+            total_minutes += sure if sure else 0
+            
+            message += f"{emoji} *{ders}* ({sure} dk)\n└ _{konu}_\n\n"
+            
+        except Exception as e:
+            print(f"Veri işlenirken hata: {e}")
+            continue
+            
+    # Toplam çalışma süresi
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+    message += f"⏱️ *Toplam:* {hours} saat {minutes} dakika"
+    
+    return message
 
-        page_props = data["results"][0]["properties"]
-        
-        # 2. Checkboxları kontrol et
-        checks = {
-            "Paragraf": page_props.get("Paragraf ✓", {}).get("checkbox", False),
-            "Blok 1-2": page_props.get("Blok 1-2 ✓", {}).get("checkbox", False),
-            "Blok 3-4": page_props.get("Blok 3-4 ✓", {}).get("checkbox", False)
-        }
-        
-        # False (Boş) olanları bul
-        missing = [name for name, status in checks.items() if not status]
-        
-        if missing:
-            msg = f"⚠️ ALARM: Gün bitiyor!\n\nEksik Kalanlar:\n❌ " + "\n❌ ".join(missing) + "\n\nŞunları halletmeden uyuma!"
-            send_telegram_message(msg)
-            print("Eksikler var, mesaj atıldı.")
-            # GitHub Action'ın hata vermemesi için exit code 0 bırakıyoruz, sadece bildirim amaçlı.
-        else:
-            print("Tüm görevler tamamlanmış. Tebrikler.")
-
-    except Exception as e:
-        print(f"Beklenmedik bir hata oluştu: {e}")
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    requests.post(url, json=payload)
 
 if __name__ == "__main__":
-    check_daily_progress()
+    print("Notion taranıyor...")
+    tasks = get_tasks_for_today()
+    print(f"{len(tasks)} görev bulundu.")
+    
+    msg = format_telegram_message(tasks)
+    send_telegram_message(msg)
+    print("Telegram mesajı gönderildi.")
