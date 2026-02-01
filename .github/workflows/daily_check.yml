@@ -1,0 +1,32 @@
+name: KPSS Günlük Kontrol
+
+on:
+  schedule:
+    # UTC Saatine göre çalışır. Türkiye UTC+3 olduğu için
+    # 20:30 UTC = 23:30 Türkiye Saati
+    - cron: '30 20 * * *'
+  workflow_dispatch: # Manuel tetikleme butonu (Test etmek için)
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Depoyu Çek (Checkout)
+      uses: actions/checkout@v3
+
+    - name: Python Kurulumu
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Kütüphaneleri Yükle
+      run: pip install -r requirements.txt
+
+    - name: Scripti Çalıştır
+      env:
+        NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+        DATABASE_ID: ${{ secrets.DATABASE_ID }}
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        CHAT_ID: ${{ secrets.CHAT_ID }}
+      run: python main.py
