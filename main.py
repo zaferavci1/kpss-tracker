@@ -72,6 +72,47 @@ def format_telegram_message(tasks):
         
         # Notion verilerini güvenli şekilde çekme (Safe parsing)
         try:
+            # DEBUG: Mevcut anahtarları görelim
+            # print(f"Sütunlar: {list(props.keys())}")  # <-- Bunu açarsan tüm sütun adlarını görürsün
+
+            # Ders (Select Property)
+            ders = props["Ders"]["select"]["name"]
+            emoji = EMOJIS.get(ders, "📌")
+            
+            # --- HATANIN OLDUĞU YER ---
+            # Önce "Konu" var mı kontrol edelim, yoksa alternatiflere bakalım
+            if "Konu" in props:
+                konu_obj = props["Konu"]
+            elif "Name" in props:  # Notion varsayılan olarak "Name" kullanır
+                konu_obj = props["Name"]
+            elif "konu" in props: # Küçük harf ihtimali
+                konu_obj = props["konu"]
+            else:
+                # Hiçbiri yoksa, hatayı yakalamak için log basalım
+                print(f"KRİTİK HATA: 'Konu' sütunu bulunamadı! Mevcut sütunlar: {list(props.keys())}")
+                continue # Bu satırı atla
+
+            # Şimdi içeriği almayı deneyelim (Title veya Rich Text olabilir)
+            konu_list = konu_obj.get("title", [])
+            if not konu_list:
+                konu_list = konu_obj.get("rich_text", []) # Belki Text property'dir
+            
+            if not konu_list:
+                 konu = "Konu belirtilmemiş"
+            else:
+                 konu = konu_list[0]["text"]["content"]
+            
+            # Süre (Number Property)
+            sure = props["Süre"]["number"]
+            total_minutes += sure if sure else 0
+            
+            message += f"{emoji} *{ders}* ({sure} dk)\n└ _{konu}_\n\n"
+            
+        except Exception as e:
+            print(f"Veri işlenirken hata: {e}")
+            # Hata anında tüm satırın yapısını görelim ki neyin yanlış olduğunu anlayalım
+            print(f"Hatalı Satırın Anahtarları: {list(props.keys())}") 
+            continue
             # Ders (Select Property)
             ders = props["Ders"]["select"]["name"]
             emoji = EMOJIS.get(ders, "📌")
