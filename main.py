@@ -30,7 +30,9 @@ def get_tasks_for_today():
     }
     
     # Notion filtreleme: Tarih = Bugün
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    #today_str = datetime.now().strftime("%Y-%m-%d")
+    # Test hali (3 Şubat verisini çekmesi için):
+    today_str = "2026-02-03"
     
     payload = {
         "filter": {
